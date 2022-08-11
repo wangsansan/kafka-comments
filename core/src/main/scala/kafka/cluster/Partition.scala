@@ -550,6 +550,10 @@ class Partition(val topicPartition: TopicPartition,
         }
 
         val minIsr = leaderReplica.log.get.config.minInSyncReplicas
+
+        /**
+         * 此处通过HW的值来间接判断分区follower副本的offset是否已经赶上了分区leader副本
+         */
         if (leaderReplica.highWatermark.messageOffset >= requiredOffset) {
           /*
            * The topic may be configured not to accept messages if there are not enough replicas in ISR

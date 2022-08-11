@@ -246,6 +246,9 @@ final class DelayedOperationPurgatory[T <: DelayedOperation](purgatoryName: Stri
       }
     }
 
+    /**
+     * 加锁等待分区follower副本的offset赶上分区leader副本的offset
+     */
     isCompletedByMe = operation.maybeTryComplete()
     if (isCompletedByMe)
       return true
