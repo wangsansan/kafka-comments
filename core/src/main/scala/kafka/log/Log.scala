@@ -967,14 +967,17 @@ class Log(@volatile var dir: File,
           return appendInfo
         }
 
+        // 找出需要处理的segment
         // maybe roll the log if this segment is full
         val segment = maybeRoll(validRecords.sizeInBytes, appendInfo)
 
+        // 构建segment需要append的offset元数据
         val logOffsetMetadata = LogOffsetMetadata(
           messageOffset = appendInfo.firstOrLastOffsetOfFirstBatch,
           segmentBaseOffset = segment.baseOffset,
           relativePositionInSegment = segment.size)
 
+        // 往segment里面append数据，往index里面put索引数据
         segment.append(largestOffset = appendInfo.lastOffset,
           largestTimestamp = appendInfo.maxTimestamp,
           shallowOffsetOfMaxTimestamp = appendInfo.offsetOfMaxTimestamp,
@@ -986,6 +989,7 @@ class Log(@volatile var dir: File,
         // will be cleaned up after the log directory is recovered. Note that the end offset of the
         // ProducerStateManager will not be updated and the last stable offset will not advance
         // if the append to the transaction index fails.
+        // 更新LEO
         updateLogEndOffset(appendInfo.lastOffset + 1)
 
         // update the producer state
@@ -1014,6 +1018,10 @@ class Log(@volatile var dir: File,
           s"next offset: ${nextOffsetMetadata.messageOffset}, " +
           s"and messages: $validRecords")
 
+        /**
+         * 注意此处的flush，调用了log和三个index文件的flush
+         * 最终底层调用的force方法
+         */
         if (unflushedMessages >= config.flushInterval)
           flush()
 
