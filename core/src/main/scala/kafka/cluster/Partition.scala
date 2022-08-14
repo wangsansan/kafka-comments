@@ -472,6 +472,9 @@ class Partition(val topicPartition: TopicPartition,
     val leaderLWIncremented = newLeaderLW > oldLeaderLW
     // check if we need to expand ISR to include this replica
     // if it is not in the ISR yet
+    /**
+     * 判断是否需要把该 follower replica放入到ISR，同时更新 leader replica的 HW
+     */
     val leaderHWIncremented = maybeExpandIsr(replicaId, logReadResult)
 
     val result = leaderLWIncremented || leaderHWIncremented
@@ -592,6 +595,7 @@ class Partition(val topicPartition: TopicPartition,
     val allLogEndOffsets = assignedReplicas.filter { replica =>
       curTime - replica.lastCaughtUpTimeMs <= replicaLagTimeMaxMs || inSyncReplicas.contains(replica)
     }.map(_.logEndOffset)
+    // 可以发现leader HW 是基于 LEO 设置的
     val newHighWatermark = allLogEndOffsets.min(new LogOffsetMetadata.OffsetOrdering)
     val oldHighWatermark = leaderReplica.highWatermark
 
@@ -704,6 +708,9 @@ class Partition(val topicPartition: TopicPartition,
     }
   }
 
+  /**
+   * 将fetch 到的 数据写入到本地log文件、index文件，并更新本地log文件的LEO
+   */
   def appendRecordsToFollowerOrFutureReplica(records: MemoryRecords, isFuture: Boolean): Option[LogAppendInfo] = {
     try {
       doAppendRecordsToFollowerOrFutureReplica(records, isFuture)

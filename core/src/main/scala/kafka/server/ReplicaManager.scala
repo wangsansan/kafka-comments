@@ -180,6 +180,7 @@ class ReplicaManager(val config: KafkaConfig,
   private val allPartitions = new Pool[TopicPartition, Partition](valueFactory = Some(tp =>
     Partition(tp, time, this)))
   private val replicaStateChangeLock = new Object
+  // replicaFetchManager是用来负责管理 replica同步的线程的
   val replicaFetcherManager = createReplicaFetcherManager(metrics, time, threadNamePrefix, quotaManagers.follower)
   val replicaAlterLogDirsManager = createReplicaAlterLogDirsManager(quotaManagers.alterLogDirs, brokerTopicStats)
   private val highWatermarkCheckPointThreadStarted = new AtomicBoolean(false)
@@ -840,6 +841,11 @@ class ReplicaManager(val config: KafkaConfig,
         hardMaxBytesLimit = hardMaxBytesLimit,
         readPartitionInfo = fetchInfos,
         quota = quota)
+
+      /**
+       * 注意此处，如果是follower来的 fetch request，我们在返回数据信息之后还需要更新一些信息
+       * 譬如：leader的 HW
+       */
       if (isFromFollower) updateFollowerLogReadResults(replicaId, result)
       else result
     }
@@ -921,6 +927,7 @@ class ReplicaManager(val config: KafkaConfig,
           fetchOnlyFromLeader = fetchOnlyFromLeader,
           minOneMessage = minOneMessage)
 
+        // 这里面只保存了需要读取的 segment 的 start 和 size，真正传输的时候要靠 零拷贝
         val fetchDataInfo = if (shouldLeaderThrottle(quota, tp, replicaId)) {
           // If the partition is being throttled, simply return an empty set.
           FetchDataInfo(readInfo.fetchedData.fetchOffsetMetadata, MemoryRecords.EMPTY)

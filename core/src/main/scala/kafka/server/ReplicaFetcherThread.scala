@@ -36,6 +36,7 @@ import org.apache.kafka.common.utils.{LogContext, Time}
 import scala.collection.JavaConverters._
 import scala.collection.{Map, mutable}
 
+
 class ReplicaFetcherThread(name: String,
                            fetcherId: Int,
                            sourceBroker: BrokerEndPoint,
@@ -158,6 +159,10 @@ class ReplicaFetcherThread(name: String,
     if (isTraceEnabled)
       trace("Follower has replica log end offset %d after appending %d bytes of messages for partition %s"
         .format(replica.logEndOffset.messageOffset, records.sizeInBytes, topicPartition))
+
+    /**
+     * 更新本地 follower replica的 HW：取本地的 LEO 和 fetch 回来的 leader HW 中的 min 值
+     */
     val followerHighWatermark = replica.logEndOffset.messageOffset.min(partitionData.highWatermark)
     val leaderLogStartOffset = partitionData.logStartOffset
     // for the follower replica, we do not need to keep
@@ -189,11 +194,15 @@ class ReplicaFetcherThread(name: String,
 
   override protected def fetchFromLeader(fetchRequest: FetchRequest.Builder): Seq[(TopicPartition, FetchData)] = {
     try {
+      // 1. 发送请求
       val clientResponse = leaderEndpoint.sendRequest(fetchRequest)
+      // 2. covert response
       val fetchResponse = clientResponse.responseBody.asInstanceOf[FetchResponse[Records]]
+      // 3. deal sessionId
       if (!fetchSessionHandler.handleResponse(fetchResponse)) {
         Nil
       } else {
+        // 4. 返回从leader replica获得的数据
         fetchResponse.responseData.asScala.toSeq
       }
     } catch {
@@ -257,6 +266,7 @@ class ReplicaFetcherThread(name: String,
       None
     } else {
       val requestBuilder = FetchRequest.Builder
+        // maxWait的默认值是500ms，也就是500ms没获取更新数据就返回，可以更新local的 HW 和 LEO
         .forReplica(fetchRequestVersion, replicaId, maxWait, minBytes, fetchData.toSend)
         .setMaxBytes(maxBytes)
         .toForget(fetchData.toForget)

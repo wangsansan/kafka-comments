@@ -108,6 +108,10 @@ abstract class AbstractFetcherThread(name: String,
     fetcherLagStats.unregister()
   }
 
+  /**
+   * 线程不停的执行doWork方法
+   * 在doWork里进行不停的replica fetch操作
+   */
   override def doWork() {
     maybeTruncate()
     maybeFetch()
@@ -115,7 +119,9 @@ abstract class AbstractFetcherThread(name: String,
 
   private def maybeFetch(): Unit = {
     val (fetchStates, fetchRequestOpt) = inLock(partitionMapLock) {
+      // 1. 获取目前各partition 的 state
       val fetchStates = partitionStates.partitionStateMap.asScala
+      // 2. 构建 fetch 请求
       val ResultWithPartitions(fetchRequestOpt, partitionsWithError) = buildFetch(fetchStates)
 
       handlePartitionsWithErrors(partitionsWithError)
@@ -128,6 +134,7 @@ abstract class AbstractFetcherThread(name: String,
       (fetchStates, fetchRequestOpt)
     }
 
+    // 3. 发出fetch 请求
     fetchRequestOpt.foreach { fetchRequest =>
       processFetchRequest(fetchStates, fetchRequest)
     }
@@ -284,6 +291,9 @@ abstract class AbstractFetcherThread(name: String,
     }
   }
 
+  /**
+   * 该方法就是真正进行 fetch request进行处理的逻辑
+   */
   private def processFetchRequest(fetchStates: Map[TopicPartition, PartitionFetchState],
                                   fetchRequest: FetchRequest.Builder): Unit = {
     val partitionsWithError = mutable.Set[TopicPartition]()
@@ -315,6 +325,7 @@ abstract class AbstractFetcherThread(name: String,
             // It's possible that a partition is removed and re-added or truncated when there is a pending fetch request.
             // In this case, we only want to process the fetch response if the partition state is ready for fetch and
             // the current offset is the same as the offset requested.
+            // 只有 partitionStates 在fetch response 返回之后发现没有改动，才会使用fetch response的数据来更新本地HW 和 LEO
             val fetchState = fetchStates(topicPartition)
             if (fetchState.fetchOffset == currentFetchState.fetchOffset && currentFetchState.isReadyForFetch) {
               val requestEpoch = if (fetchState.currentLeaderEpoch >= 0)
@@ -325,6 +336,9 @@ abstract class AbstractFetcherThread(name: String,
                 case Errors.NONE =>
                   try {
                     // Once we hand off the partition data to the subclass, we can't mess with it any more in this thread
+                    /**
+                     * 此处是 fetch response 正常返回的情况
+                     */
                     val logAppendInfoOpt = processPartitionData(topicPartition, currentFetchState.fetchOffset,
                       partitionData)
 
