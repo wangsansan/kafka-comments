@@ -306,8 +306,15 @@ public class Sender implements Runnable {
                 transactionManager.authenticationFailed(e);
             }
         }
-
+        /**
+         * 此处将可发送数据封装成request，放到inFlightRequests里，并在selector上监听可写事件
+         */
         long pollTimeout = sendProducerData(now);
+        /**
+         * 进行selector真正的读写逻辑
+         * 写：进行socketChannel.write，并减少inFlightRequests里对应项
+         * 读：读取server端的response？
+         */
         client.poll(pollTimeout, now);
     }
 

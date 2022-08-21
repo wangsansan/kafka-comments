@@ -508,6 +508,7 @@ public class NetworkClient implements KafkaClient {
                 send,
                 now);
         this.inFlightRequests.add(inFlightRequest);
+        // 将kafkaChannel的状态设置为可写
         selector.send(send);
     }
 
@@ -535,6 +536,7 @@ public class NetworkClient implements KafkaClient {
 
         long metadataTimeout = metadataUpdater.maybeUpdate(now);
         try {
+            // 真正进行逻辑处理的地方
             this.selector.poll(Utils.min(timeout, metadataTimeout, defaultRequestTimeoutMs));
         } catch (IOException e) {
             log.error("Unexpected error during I/O", e);
@@ -543,7 +545,9 @@ public class NetworkClient implements KafkaClient {
         // process completed actions
         long updatedNow = this.time.milliseconds();
         List<ClientResponse> responses = new ArrayList<>();
+        // 根据接收到的response，处理inFlightRequest，删除对应request
         handleCompletedSends(responses, updatedNow);
+        // 处理读到的数据
         handleCompletedReceives(responses, updatedNow);
         handleDisconnections(responses, updatedNow);
         handleConnections();
@@ -767,6 +771,9 @@ public class NetworkClient implements KafkaClient {
      *
      * @param responses The list of responses to update
      * @param now The current time
+     */
+    /**
+     * 已经接收到request对应的response的话，需要把inFlightRequests里对应的request删除
      */
     private void handleCompletedSends(List<ClientResponse> responses, long now) {
         // if no response is expected then when the send is completed, return it

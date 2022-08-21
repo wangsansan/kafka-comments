@@ -503,7 +503,7 @@ public class Selector implements Selectable, AutoCloseable {
         // Add to completedReceives after closing expired connections to avoid removing
         // channels with completed receives until all staged receives are completed.
         /**
-         * 把stagedReceives里符合条件（socket没有国企）的数据
+         * 把stagedReceives里符合条件（socket没有过期）的数据
          * 全都移到了completedReceives里了
          */
         addToCompletedReceives();
@@ -557,7 +557,7 @@ public class Selector implements Selectable, AutoCloseable {
                     if (channel.ready())
                         sensors.successfulAuthentication.record();
                 }
-
+                // 处理读事件
                 attemptRead(key, channel);
 
                 if (channel.hasBytesBuffered()) {
@@ -571,6 +571,7 @@ public class Selector implements Selectable, AutoCloseable {
                 }
 
                 /* if channel is ready write to any sockets that have space in their buffer and for which we have data */
+                // 处理写，将channel里可写的数据写出去（也就是将需要发出去的数据发出去）
                 if (channel.ready() && key.isWritable()) {
                     Send send;
                     try {
