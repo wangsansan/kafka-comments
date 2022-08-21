@@ -165,6 +165,7 @@ class SocketServer(val config: KafkaConfig, val metrics: Metrics, val time: Time
       nextProcessorId += 1
     }
     listenerProcessors.foreach(p => processors.put(p.id, p))
+    // 启动processor（processor都是线程）
     acceptor.addProcessors(listenerProcessors)
   }
 
