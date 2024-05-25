@@ -205,6 +205,9 @@ public class Fetcher<K, V> implements SubscriptionState.Listener, Closeable {
      */
     public synchronized int sendFetches() {
         Map<Node, FetchSessionHandler.FetchRequestData> fetchRequestMap = prepareFetchRequests();
+        /**
+         * 每个Node发送一个请求
+         */
         for (Map.Entry<Node, FetchSessionHandler.FetchRequestData> entry : fetchRequestMap.entrySet()) {
             final Node fetchTarget = entry.getKey();
             final FetchSessionHandler.FetchRequestData data = entry.getValue();
@@ -221,6 +224,7 @@ public class Fetcher<K, V> implements SubscriptionState.Listener, Closeable {
                     .addListener(new RequestFutureListener<ClientResponse>() {
                         @Override
                         public void onSuccess(ClientResponse resp) {
+                            // completedFetches 是线程安全的，此处加锁的原因，本人猜测是因为打点，不想乱序
                             synchronized (Fetcher.this) {
                                 FetchResponse<Records> response = (FetchResponse<Records>) resp.responseBody();
                                 FetchSessionHandler handler = sessionHandler(fetchTarget.id());
@@ -481,12 +485,21 @@ public class Fetcher<K, V> implements SubscriptionState.Listener, Closeable {
         int recordsRemaining = maxPollRecords;
 
         try {
+            /**
+             * 这段代码写的太拗口，将所有之前fetch到的数据给返回。利用while循环和if判断，实现了两步骤：
+             * 1. 将之前poll到的数据（completedFetches）放到了 nextInLineRecords 里
+             * 2. 将 nextInLineRecords 里的数据 转化成可消费的 records，然后放到 fetched 这个Map里
+             * 3. 重复以上步骤，最终返回 fetched
+             * 注释：completedFetches 里的数据是 client(NetworkClient) 进行 poll 且 success 放进去的，
+             * 也就是从 server 端获取到的数据
+             */
             while (recordsRemaining > 0) {
                 if (nextInLineRecords == null || nextInLineRecords.isFetched) {
                     CompletedFetch completedFetch = completedFetches.peek();
                     if (completedFetch == null) break;
 
                     try {
+                        // 此处将从server端poll来的数据 completedFetches 给parse成 nextInLineRecords(PartitionRecords)
                         nextInLineRecords = parseCompletedFetch(completedFetch);
                     } catch (Exception e) {
                         // Remove a completedFetch upon a parse with exception if (1) it contains no records, and
@@ -868,6 +881,7 @@ public class Fetcher<K, V> implements SubscriptionState.Listener, Closeable {
         Map<Node, FetchSessionHandler.Builder> fetchable = new LinkedHashMap<>();
         for (TopicPartition partition : fetchablePartitions()) {
             Node node = cluster.leaderFor(partition);
+            // 如果 partition 的 leader 为null，则重新拉取元数据
             if (node == null) {
                 metadata.requestUpdate();
             } else if (client.isUnavailable(node)) {
