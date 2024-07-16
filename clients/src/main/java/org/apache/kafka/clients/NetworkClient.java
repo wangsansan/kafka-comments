@@ -508,7 +508,7 @@ public class NetworkClient implements KafkaClient {
                 send,
                 now);
         this.inFlightRequests.add(inFlightRequest);
-        // 将kafkaChannel的状态设置为可写
+        // 把数据绑定到到 KafkaChannel 上，同时通知kafkaChannel底层的nioSelector有可写事件
         selector.send(send);
     }
 
