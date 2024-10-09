@@ -772,9 +772,6 @@ public class NetworkClient implements KafkaClient {
      * @param responses The list of responses to update
      * @param now The current time
      */
-    /**
-     * 已经接收到request对应的response的话，需要把inFlightRequests里对应的request删除
-     */
     private void handleCompletedSends(List<ClientResponse> responses, long now) {
         // if no response is expected then when the send is completed, return it
         for (Send send : this.selector.completedSends()) {
