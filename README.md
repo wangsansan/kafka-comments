@@ -6,6 +6,10 @@ You need to have [Java](http://www.oracle.com/technetwork/java/javase/downloads/
 
 Java 8 should be used for building in order to support both Java 8 and Java 10 at runtime.
 
+### 博客
+Producer原理，参考我的[博客](https://blog.csdn.net/liangsheng_g/article/details/142783642)
+
+
 ### Build a jar and run it ###
     ./gradlew jar
 
