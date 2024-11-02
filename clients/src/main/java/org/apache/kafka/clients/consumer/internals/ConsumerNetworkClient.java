@@ -244,6 +244,7 @@ public class ConsumerNetworkClient implements Closeable {
      */
     public void poll(Timer timer, PollCondition pollCondition, boolean disableWakeup) {
         // there may be handlers which need to be invoked if we woke up the previous call to poll
+        // 防止上次request发送结果还没有fire，此处进行fire
         firePendingCompletedRequests();
 
         lock.lock();
@@ -257,6 +258,10 @@ public class ConsumerNetworkClient implements Closeable {
             // check whether the poll is still needed by the caller. Note that if the expected completion
             // condition becomes satisfied after the call to shouldBlock() (because of a fired completion
             // handler), the client will be woken up.
+            /**
+             * 此处的判断是指 前一次poll请求的response处理完了，且没有获取到任何可消费的batches，
+             * 此时需要设置一个带超时时间的poll操作->本次fetch请求的发送和maybe前一次fetch请求的response读取
+             */
             if (pendingCompletion.isEmpty() && (pollCondition == null || pollCondition.shouldBlock())) {
                 // if there are no requests in flight, do not block longer than the retry backoff
                 long pollTimeout = Math.min(timer.remainingMs(), pollDelayMs);
@@ -264,6 +269,11 @@ public class ConsumerNetworkClient implements Closeable {
                     pollTimeout = Math.min(pollTimeout, retryBackoffMs);
                 client.poll(pollTimeout, timer.currentTimeMs());
             } else {
+                /**
+                 * 如果解析到前一次的poll请求的数据了：
+                 * 此时就直接poll操作->本次fetch请求的发送和maybe前一次fetch请求的response读取
+                 * 不带超时时间的poll操作：本次fetch请求一定能发送成功，不一定能获取到前一次fetch请求的response读取
+                 */
                 client.poll(0, timer.currentTimeMs());
             }
             timer.update();
@@ -379,6 +389,9 @@ public class ConsumerNetworkClient implements Closeable {
         }
     }
 
+    /**
+     * 处理等待完成的request，根据实际发送结果对Future对象进行设置，同时触发Future上关联的listeners
+     */
     private void firePendingCompletedRequests() {
         boolean completedRequestsFired = false;
         for (;;) {

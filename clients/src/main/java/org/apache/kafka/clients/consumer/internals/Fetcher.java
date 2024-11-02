@@ -895,6 +895,7 @@ public class Fetcher<K, V> implements SubscriptionState.Listener, Closeable {
             } else {
                 // if there is a leader and no in-flight requests, issue a new fetch
                 FetchSessionHandler.Builder builder = fetchable.get(node);
+                // 此处的写法类似于java8里面Map的computeIfAbsent，也就是只有当Map里没有没有这个 Node 时，才 put 这个 Node
                 if (builder == null) {
                     FetchSessionHandler handler = sessionHandler(node.id());
                     if (handler == null) {
@@ -906,6 +907,7 @@ public class Fetcher<K, V> implements SubscriptionState.Listener, Closeable {
                 }
 
                 long position = this.subscriptions.position(partition);
+                // 注意这句，也就是如果某个Node是多个partition的leader，是都会请求的
                 builder.add(partition, new FetchRequest.PartitionData(position, FetchRequest.INVALID_LOG_START_OFFSET,
                     this.fetchSize, Optional.empty()));
 

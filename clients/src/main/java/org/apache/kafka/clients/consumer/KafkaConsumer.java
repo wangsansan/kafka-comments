@@ -1164,6 +1164,11 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
         return poll(time.timer(timeout), true);
     }
 
+    /**
+     * @param timer
+     * @param includeMetadataInTimeout：没有废弃的方法中，该值是直接取true
+     * @return
+     */
     private ConsumerRecords<K, V> poll(final Timer timer, final boolean includeMetadataInTimeout) {
         acquireAndEnsureOpen();
         try {
@@ -1174,8 +1179,12 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
             // poll for new data until the timeout expires
             do {
                 client.maybeTriggerWakeup();
-
+                // 此处为true
                 if (includeMetadataInTimeout) {
+                    /**
+                     * updateAssignmentMetadataIfNeeded 会提交offset(当然，也会判断是否达到配置的提交时间，默认每5秒一次)
+                     * 所以其实offset是每次 Consumer.poll时，先进行offset的提交的
+                     */
                     if (!updateAssignmentMetadataIfNeeded(timer)) {
                         return ConsumerRecords.empty();
                     }
@@ -1211,6 +1220,7 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
      * Visible for testing
      */
     boolean updateAssignmentMetadataIfNeeded(final Timer timer) {
+        // coordinator.poll 方法内部会自动提交offset
         if (!coordinator.poll(timer)) {
             return false;
         }
@@ -1243,6 +1253,9 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
         client.poll(pollTimer, () -> {
             // since a fetch might be completed by the background thread, we need this poll condition
             // to ensure that we do not block unnecessarily in poll()
+            /**
+             * 只要 fetcher 没有拉取到可消费的fetches，就不停止poll操作
+             */
             return !fetcher.hasCompletedFetches();
         });
         timer.update(pollTimer.currentTimeMs());
