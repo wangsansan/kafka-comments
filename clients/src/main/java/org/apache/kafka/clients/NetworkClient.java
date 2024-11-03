@@ -553,6 +553,7 @@ public class NetworkClient implements KafkaClient {
         handleConnections();
         handleInitiateApiVersionRequests(updatedNow);
         handleTimedOutRequests(responses, updatedNow);
+        // 根据response执行request设置的回调函数
         completeResponses(responses);
 
         return responses;

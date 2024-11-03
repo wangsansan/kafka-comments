@@ -209,7 +209,7 @@ public class Fetcher<K, V> implements SubscriptionState.Listener, Closeable {
          * 每个Node发送一个请求
          */
         for (Map.Entry<Node, FetchSessionHandler.FetchRequestData> entry : fetchRequestMap.entrySet()) {
-            final Node fetchTarget = entry.getKey();
+            final Node fetchTargetDataNode = entry.getKey();
             final FetchSessionHandler.FetchRequestData data = entry.getValue();
             final FetchRequest.Builder request = FetchRequest.Builder
                     .forConsumer(this.maxWaitMs, this.minBytes, data.toSend())
@@ -218,19 +218,19 @@ public class Fetcher<K, V> implements SubscriptionState.Listener, Closeable {
                     .metadata(data.metadata())
                     .toForget(data.toForget());
             if (log.isDebugEnabled()) {
-                log.debug("Sending {} {} to broker {}", isolationLevel, data.toString(), fetchTarget);
+                log.debug("Sending {} {} to broker {}", isolationLevel, data.toString(), fetchTargetDataNode);
             }
-            client.send(fetchTarget, request)
+            client.send(fetchTargetDataNode, request)
                     .addListener(new RequestFutureListener<ClientResponse>() {
                         @Override
                         public void onSuccess(ClientResponse resp) {
                             // completedFetches 是线程安全的，此处加锁的原因，本人猜测是因为打点，不想乱序
                             synchronized (Fetcher.this) {
                                 FetchResponse<Records> response = (FetchResponse<Records>) resp.responseBody();
-                                FetchSessionHandler handler = sessionHandler(fetchTarget.id());
+                                FetchSessionHandler handler = sessionHandler(fetchTargetDataNode.id());
                                 if (handler == null) {
                                     log.error("Unable to find FetchSessionHandler for node {}. Ignoring fetch response.",
-                                            fetchTarget.id());
+                                            fetchTargetDataNode.id());
                                     return;
                                 }
                                 if (!handler.handleResponse(response)) {
@@ -241,12 +241,16 @@ public class Fetcher<K, V> implements SubscriptionState.Listener, Closeable {
                                 FetchResponseMetricAggregator metricAggregator = new FetchResponseMetricAggregator(sensors, partitions);
 
                                 for (Map.Entry<TopicPartition, FetchResponse.PartitionData<Records>> entry : response.responseData().entrySet()) {
+                                    // fetch数据的partition
                                     TopicPartition partition = entry.getKey();
+                                    // fetchOffset 就是当前Consumer节点针对 partition 已经消费完的 position
                                     long fetchOffset = data.sessionPartitions().get(partition).fetchOffset;
+                                    // 从当前partition fetch到的数据
                                     FetchResponse.PartitionData fetchData = entry.getValue();
 
                                     log.debug("Fetch {} at offset {} for partition {} returned fetch data {}",
                                             isolationLevel, fetchOffset, partition, fetchData);
+                                    // 可以得知每个 completedFetch 的 fetchedOffset，其实就是当前 fetchData 的起始 offset
                                     completedFetches.add(new CompletedFetch(partition, fetchOffset, fetchData, metricAggregator,
                                             resp.requestHeader().apiVersion()));
                                 }
@@ -258,7 +262,7 @@ public class Fetcher<K, V> implements SubscriptionState.Listener, Closeable {
                         @Override
                         public void onFailure(RuntimeException e) {
                             synchronized (Fetcher.this) {
-                                FetchSessionHandler handler = sessionHandler(fetchTarget.id());
+                                FetchSessionHandler handler = sessionHandler(fetchTargetDataNode.id());
                                 if (handler != null) {
                                     handler.handleError(e);
                                 }
@@ -907,7 +911,10 @@ public class Fetcher<K, V> implements SubscriptionState.Listener, Closeable {
                 }
 
                 long position = this.subscriptions.position(partition);
-                // 注意这句，也就是如果某个Node是多个partition的leader，是都会请求的
+                /**
+                 * 注意这句，也就是如果某个Node是多个partition的leader，是都会请求的
+                 * 同时把当前Consumer对于当前tp的 position 当作 fetchRequest 的 fetchOffset
+                  */
                 builder.add(partition, new FetchRequest.PartitionData(position, FetchRequest.INVALID_LOG_START_OFFSET,
                     this.fetchSize, Optional.empty()));
 
@@ -938,6 +945,12 @@ public class Fetcher<K, V> implements SubscriptionState.Listener, Closeable {
                 // while fetch is still in-flight
                 log.debug("Ignoring fetched records for partition {} since it is no longer fetchable", tp);
             } else if (error == Errors.NONE) {
+                /**
+                 * 没有异常的时候的消息处理：
+                 * 将 completedFetch 处理一下，变成 PartitionRecords。（completedFetch是tp维度的）
+                 * completedFetch 里的 partitionData.records.batches() 指向的就是 Producer 当时发送消息的一个个 batch
+                 * 注意此处 records 不是集合属性，里面的 batches 其实是批量消息batch的迭代器
+                 */
                 // we are interested in this fetch only if the beginning offset matches the
                 // current consumed position
                 Long position = subscriptions.position(tp);
@@ -1025,6 +1038,7 @@ public class Fetcher<K, V> implements SubscriptionState.Listener, Closeable {
 
     /**
      * Parse the record entry, deserializing the key / value fields if necessary
+     * 对消息进行序列化和反序列化
      */
     private ConsumerRecord<K, V> parseRecord(TopicPartition partition,
                                              RecordBatch batch,
@@ -1180,11 +1194,15 @@ public class Fetcher<K, V> implements SubscriptionState.Listener, Closeable {
             }
         }
 
+        /**
+         * 找到下一个待消费的 record
+         */
         private Record nextFetchedRecord() {
             while (true) {
+                // 如果待消费的 records 为空，那就从下一个batch里获取record
                 if (records == null || !records.hasNext()) {
                     maybeCloseRecordStream();
-
+                    // 如果没有下一个 batch 了，就返回为空，后续要发起 fetch request
                     if (!batches.hasNext()) {
                         // Message format v2 preserves the last offset in a batch even if the last record is removed
                         // through compaction. By using the next offset computed from the last offset in the batch,
@@ -1196,7 +1214,7 @@ public class Fetcher<K, V> implements SubscriptionState.Listener, Closeable {
                         drain();
                         return null;
                     }
-
+                    // 把下一个batch 设置为 currentBatch
                     currentBatch = batches.next();
                     maybeEnsureValid(currentBatch);
 
@@ -1217,7 +1235,7 @@ public class Fetcher<K, V> implements SubscriptionState.Listener, Closeable {
                             continue;
                         }
                     }
-
+                    // 将 batch 转化为 records
                     records = currentBatch.streamingIterator(decompressionBufferSupplier);
                 } else {
                     Record record = records.next();
