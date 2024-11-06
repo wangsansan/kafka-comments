@@ -747,6 +747,7 @@ public final class ConsumerCoordinator extends AbstractCoordinator {
      *
      * @param offsets The list of offsets per partition that should be committed.
      * @return A request future whose value indicates whether the commit was successful or not
+     * 发送 commit offset 请求
      */
     private RequestFuture<Void> sendOffsetCommitRequest(final Map<TopicPartition, OffsetAndMetadata> offsets) {
         if (offsets.isEmpty())
